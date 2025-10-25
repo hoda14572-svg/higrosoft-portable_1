@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ro"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HigroSoft — Analiză higrotermică (offline)</title>
+<style>
+:root{--bg:#f7f8fa;--card:#fff;--text:#1f2430;--muted:#6b7280;--primary:#0b5fff;--border:#e6e9f0}
+*{box-sizing:border-box}html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+.wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.brand{display:flex;align-items:center;gap:12px}.logo{width:40px;height:40px;border-radius:50%;background:linear-gradient(180deg,#0c7cff,#4ba8ff);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+h1{font-size:20px;margin:0}.grid{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}.card h2{font-size:16px;margin:0 0 8px}.muted{color:var(--muted);font-size:12px}
+label{display:block;font-size:13px;margin:10px 0 6px}input[type=file],input[type=number],select{width:100%;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:14px}
+.row{display:flex;gap:10px}.row>*{flex:1}button{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+button.secondary{background:#fff;color:var(--text);border:1px solid var(--border)}.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:8px}
+.kpi .item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}.kpi .lbl{font-size:12px;color:var(--muted)}.kpi .val{font-size:18px;font-weight:700;margin-top:4px}
+.tabs{display:flex;gap:8px;margin-top:8px}.tabs button{background:#fff;color:var(--text);border:1px solid var(--border)}.tabs button.active{background:var(--primary);color:#fff}
+canvas.chart{background:#fff;border:1px solid var(--border);border-radius:12px;padding:6px;width:100%;height:360px}table{width:100%;border-collapse:collapse}th,td{text-align:left;font-size:12px;padding:8px;border-bottom:1px solid var(--border)}
+@media print{body{background:#fff}.no-print{display:none}.card{border:none}canvas.chart{border:1px solid #ddd}}
+</style></head>
+<body>
+<div class="wrap">
+<header class="no-print"><div class="brand"><div class="logo">HS</div><div><h1>HigroSoft — Analiză higrotermică (offline)</h1><div class="muted">Local, fără internet • Export CSV • Print PDF</div></div></div>
+<div class="row"><button id="btnPrint">PDF/Print</button><button id="btnExportCSV" class="secondary">Export CSV</button></div></header>
+<div class="grid">
+<div class="card no-print"><h2>📂 Date & setări</h2>
+<label>Fișier datalogger (CSV)</label><input type="file" id="fileInput" accept=".csv,text/csv"/>
+<div class="row"><div><label>Metodă T_suprafață</label><select id="tsMode">
+<option>Interpolare început→sfârșit</option><option>Valoare constantă</option><option>Delta față de T_air</option><option>Coloană T_surface din fișier</option></select></div>
+<div><label>T_s început / Valoare / Δ (°C)</label><input type="number" id="tStart" step="0.1" value="18.0"></div></div>
+<div class="row"><div><label>T_s sfârșit (°C)</label><input type="number" id="tEnd" step="0.1" value="18.0"></div>
+<div><label>Prag RH (%)</label><input type="number" id="rhThr" step="1" value="80"></div></div>
+<div class="row"><div><label>Margine siguranță (°C)</label><input type="number" id="safety" step="0.1" value="0.5"></div>
+<div style="display:flex;align-items:flex-end;gap:8px;"><button id="btnAnalyze" style="width:100%;">Analizează</button></div></div>
+<div class="muted" style="margin-top:8px;">CSV cu antet: <b>TIME</b>, <b>Temp(C)</b>, <b>RH(%RH)</b>. Opțional: <b>T_surface_C</b>.</div></div>
+<div class="card" id="reportArea"><h2>📊 Rezumat & grafice</h2>
+<div class="kpi"><div class="item"><div class="lbl">Măsurători</div><div class="val" id="kpiN">—</div></div>
+<div class="item"><div class="lbl">% timp în condens</div><div class="val" id="kpiCond">—</div></div>
+<div class="item"><div class="lbl"># RH ≥ prag</div><div class="val" id="kpiRH">—</div></div>
+<div class="item"><div class="lbl">T_s necesară medie</div><div class="val" id="kpiTsNeed">—</div></div></div>
+<div class="tabs no-print"><button class="active" data-tab="tabChart">Grafic</button><button data-tab="tabTable">Tabel</button></div>
+<div id="tabChart" class="tab card" style="border:none;box-shadow:none;"><canvas id="chart" class="chart"></canvas></div>
+<div id="tabTable" class="tab card" style="display:none;border:none;box-shadow:none;"><div style="overflow:auto;max-height:420px;"><table id="dataTable"></table></div></div>
+</div></div>
+<div class="muted" style="margin-top:12px;text-align:center">© HigroSoft – metoda Magnus pentru punct de rouă.</div>
+</div>
+<script>
+const el=q=>document.querySelector(q), els=q=>Array.from(document.querySelectorAll(q)), fmt=(v,d=1)=>(v==null||isNaN(v))?"—":Number(v).toFixed(d);
+function splitLines(t){return t.split(/\r?\n/).filter(x=>x.trim().length>0)} function detectSep(line){const c=[",",";","\t","|"].map(s=>({s,n:(line.split(s).length-1)}));c.sort((a,b)=>b.n-a.n);return c[0].n>0?c[0].s:","}
+function toNum(v){if(v==null)return NaN;const s=(""+v).replace(","," .").replace(" ","").replace(" .",".");const x=parseFloat(s);return isFinite(x)?x:NaN}
+function parseTimestamp(s){if(!s)return null;s=s.trim().replace(/\//g,"-").replace(/\./g,"-");const d=new Date(s);return isNaN(d.getTime())?null:d}
+function dewPointC(T,RH){const a=17.62,b=243.12;const RHc=Math.max(0.1,Math.min(100,RH));const g=(a*T)/(b+T)+Math.log(RHc/100);return(b*g)/(a-g)}
+function rhForTdp(Ta,Tdp){const a=17.62,b=243.12;const A=(a*Ta)/(b+Ta),D=(a*Tdp)/(b+Tdp);return Math.max(0,Math.min(100,100*Math.exp(D-A)))}
+function parseCSV(text){const lines=splitLines(text);if(!lines.length)return[];const sep=detectSep(lines[0]);let headerIdx=0;for(let i=0;i<Math.min(50,lines.length);i++){const cells=lines[i].split(sep).map(x=>x.trim().toUpperCase());if(cells.includes("TIME")){headerIdx=i;break}}const header=lines[headerIdx].split(sep).map(x=>x.trim());const out=[];for(let i=headerIdx+1;i<lines.length;i++){const vals=lines[i].split(sep);if(vals.length<2)continue;const obj={};header.forEach((h,j)=>obj[h]=(vals[j]??"").trim());out.push(obj)}return out}
+let rawRows=[],df=[],chart;
+els(".tabs button").forEach(btn=>btn.addEventListener("click",()=>{els(".tabs button").forEach(b=>b.classList.remove("active"));btn.classList.add("active");els(".tab").forEach(t=>t.style.display="none");el("#"+btn.dataset.tab).style.display="block"}));
+el("#fileInput").addEventListener("change",async ev=>{const f=ev.target.files[0];if(!f)return;const text=await f.text();rawRows=parseCSV(text);alert(`Încărcat ${rawRows.length} rânduri.`)});
+el("#btnAnalyze").addEventListener("click",()=>{if(!rawRows.length){alert("Încarcă mai întâi un CSV.");return;}const mode=el("#tsMode").value;const tStart=parseFloat(el("#tStart").value);const tEnd=parseFloat(el("#tEnd").value);const rhThr=parseFloat(el("#rhThr").value);const safety=parseFloat(el("#safety").value);
+const mapRow=(r)=>{const keys=Object.keys(r);const g=(name)=>{const k=keys.find(k=>k.trim().toUpperCase()===name);return k?r[k]:""};const ts_raw=g("TIME");const T_air=parseFloat((g("TEMP(C)")||"").replace(",","."));const RH=parseFloat((g("RH(%RH)")||"").replace(",","."));const T_s_col=parseFloat((r["T_surface_C"]||"").replace(",","."));const ts=parseTimestamp(ts_raw);return{ts_raw,ts,T_air,RH,T_s_col}};
+const rows=rawRows.map(mapRow).filter(x=>!isNaN(x.T_air)&&!isNaN(x.RH));if(!rows.length){alert("Nu am găsit coloane valide Temp(C) și RH(%RH).");return;}rows.forEach(r=>r.T_dew=dewPointC(r.T_air,r.RH));
+if(mode.startsWith("Interpolare")){const n=rows.length;rows.forEach((r,i)=>r.T_s=(n>1?tStart+(tEnd-tStart)*(i/(n-1)):tStart));}
+else if(mode.startsWith("Valoare")){rows.forEach(r=>r.T_s=tStart);} else if(mode.startsWith("Delta")){rows.forEach(r=>r.T_s=r.T_air - tStart);} else {rows.forEach(r=>r.T_s=isNaN(r.T_s_col)?tStart:r.T_s_col);}
+rows.forEach(r=>{r.cond=(r.T_s<=r.T_dew)?1:0;r.Ts_needed=r.T_dew+safety;r.RH_max_allowed=rhForTdp(r.T_air,r.T_s - safety)});
+df=rows;const n=df.length,condPct=100*df.reduce((a,r)=>a+r.cond,0)/n,rhOver=df.reduce((a,r)=>a+(r.RH>=rhThr?1:0),0),TsNeedAvg=df.reduce((a,r)=>a+r.Ts_needed,0)/n;
+el("#kpiN").textContent=n.toString();el("#kpiCond").textContent=fmt(condPct,1);el("#kpiRH").textContent=rhOver.toString();el("#kpiTsNeed").textContent=fmt(TsNeedAvg,1);
+renderTable();renderChart();});
+function renderTable(){const t=el("#dataTable");if(!df.length){t.innerHTML="";return;}const head=["timestamp","T_air_C","RH_pct","T_dew_C","T_surface_C","Condensation","T_surface_needed_C","RH_max_allowed_pct"];let html="<thead><tr>"+head.map(h=>`<th>${h}</th>`).join("")+"</tr></thead><tbody>";for(const r of df){const row=[r.ts?r.ts.toISOString().slice(0,19).replace("T"," "):(r.ts_raw||""),fmt(r.T_air,1),fmt(r.RH,0),fmt(r.T_dew,1),fmt(r.T_s,1),r.cond?1:0,fmt(r.Ts_needed,1),fmt(r.RH_max_allowed,0)];html+="<tr>"+row.map(c=>`<td>${c}</td>`).join("")+"</tr>"}html+="</tbody>";t.innerHTML=html}
+function renderChart(){const c=el("#chart"),ctx=c.getContext("2d");const W=c.clientWidth,H=360;c.width=W;c.height=H;const sT=df.map(r=>r.T_air),sTd=df.map(r=>r.T_dew),sTs=df.map(r=>r.T_s);const all=sT.concat(sTd,sTs).filter(v=>!isNaN(v));const ymin=Math.min(...all),ymax=Math.max(...all);const left=50,right=10,top=20,bottom=30;const X=i=>left+(W-left-right)*(i/Math.max(1,df.length-1));const Y=v=>top+(H-top-bottom)*(1-(v-ymin)/Math.max(1e-9,ymax-ymin));ctx.clearRect(0,0,W,H);ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.strokeStyle="#e6e9f0";ctx.lineWidth=1;ctx.font="12px system-ui";ctx.fillStyle="#6b7280";for(let k=0;k<=4;k++){const val=ymin+(ymax-ymin)*k/4;const y=Y(val);ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(W-right,y);ctx.stroke();ctx.fillText(fmt(val,1),6,y-2)}ctx.strokeStyle="#c7cbd5";ctx.beginPath();ctx.moveTo(left,top);ctx.lineTo(left,H-bottom);ctx.lineTo(W-right,H-bottom);ctx.stroke();function draw(vals,col){ctx.strokeStyle=col;ctx.lineWidth=2;ctx.beginPath();vals.forEach((v,i)=>{const x=X(i),y=Y(v);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)});ctx.stroke()}draw(sT,"#0b5fff");draw(sTd,"#ef4444");draw(sTs,"#10b981");ctx.fillStyle="#1f2430";ctx.fillText("T_aer",left+10,top+12);ctx.fillStyle="#ef4444";ctx.fillText("T_dew",left+70,top+12);ctx.fillStyle="#10b981";ctx.fillText("T_s",left+130,top+12)}
+el("#btnExportCSV").addEventListener("click",()=>{if(!df.length){alert("Nu există date analizate.");return;}const head=["timestamp","T_air_C","RH_pct","T_dew_C","T_surface_C","Condensation","T_surface_needed_C","RH_max_allowed_pct"];const lines=[head.join(",")];for(const r of df){const row=[r.ts?r.ts.toISOString().slice(0,19).replace("T"," "):(r.ts_raw||""),fmt(r.T_air,1),fmt(r.RH,0),fmt(r.T_dew,1),fmt(r.T_s,1),r.cond?1:0,fmt(r.Ts_needed,1),fmt(r.RH_max_allowed,0)];lines.push(row.join(","))}const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="higrosoft_analiza.csv";a.click()});
+el("#btnPrint").addEventListener("click",()=>window.print());
+</script>
+</body></html>

@@ -1,0 +1,40 @@
+{
+  "name": "higrosoft",
+  "version": "1.0.0",
+  "description": "HigroSoft – Analiză higrotermică (portable)",
+  "main": "main.js",
+  "author": "HigroSoft",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "electron-builder install-app-deps",
+    "dist": "electron-builder --win portable",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "30.0.6",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.higrosoft.app",
+    "productName": "HigroSoft",
+    "files": [
+      "app/**",
+      "!**/*.map"
+    ],
+    "directories": {
+      "buildResources": "app/assets"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "HigroSoft.exe",
+      "icon": "app/assets/higrosoft.ico"
+    }
+  }
+}
